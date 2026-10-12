@@ -248,6 +248,20 @@ button:focus-visible {
   border-top: 1px solid var(--border);
 }
 
+.quick {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  min-height: 30px;
+  font-size: 13px;
+}
+
 /* ---------- buttons ---------- */
 
 .btn {

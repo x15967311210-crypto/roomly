@@ -28,6 +28,29 @@ export function formatMinutes(min: number): string {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 }
 
+/** 时长的可读写法：90 → `1 小时 30 分钟`。 */
+export function formatDurationLabel(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest} 分钟`;
+  if (rest === 0) return `${hours} 小时`;
+  return `${hours} 小时 ${rest} 分钟`;
+}
+
+/** 所选时段的时长（分钟）；时间非法或不为正时返回 null。 */
+export function durationMinutes(start: string, end: string): number | null {
+  const startMin = parseTimeToMinutes(start);
+  const endMin = parseTimeToMinutes(end);
+  if (startMin === null || endMin === null) return null;
+  const minutes = endMin - startMin;
+  return minutes > 0 ? minutes : null;
+}
+
+/** 单次预约是否落在时长上限内。 */
+export function isWithinMaxDuration(startMin: number, endMin: number): boolean {
+  return (endMin - startMin) / 60 <= MAX_DURATION_MIN;
+}
+
 /** 时间下拉的全部取值：09:00, 09:30, … 18:00。 */
 export function timeOptions(): string[] {
   const out: string[] = [];
@@ -203,7 +226,7 @@ export function validateBooking(
           message: `预约必须在办公时段 ${formatMinutes(OPENING_MIN)}–${formatMinutes(CLOSING_MIN)} 内`,
         });
       }
-      if (end - start > MAX_DURATION_MIN) {
+      if (!isWithinMaxDuration(start, end)) {
         violations.push({
           field: 'end',
           message: `单次预约不能超过 ${MAX_DURATION_MIN / 60} 小时`,
