@@ -23,10 +23,15 @@ jobs:
         id: preview
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `GITHUB_SHA` on a pull_request event is the merge commit GitHub
+          # synthesises for the PR, which Vercel never builds. The deployment
+          # belongs to the branch's head commit.
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -uo pipefail
+          echo "Resolving the Vercel preview for ${PR_SHA}"
           for _ in $(seq 1 40); do
-            dep="$(gh api "repos/${GITHUB_REPOSITORY}/deployments?sha=${GITHUB_SHA}&per_page=20" \
+            dep="$(gh api "repos/${GITHUB_REPOSITORY}/deployments?sha=${PR_SHA}&per_page=20" \
               --jq '[.[] | select(.environment=="Preview")] | .[0].id' 2>/dev/null || true)"
             if [ -n "${dep:-}" ] && [ "$dep" != "null" ]; then
               state="$(gh api "repos/${GITHUB_REPOSITORY}/deployments/${dep}/statuses" --jq '.[0].state' 2>/dev/null || true)"
@@ -34,17 +39,19 @@ jobs:
               echo "deployment ${dep}: state=${state} url=${url}"
               if [ "$state" = "success" ] && [ -n "${url:-}" ] && [ "$url" != "null" ]; then
                 echo "url=${url}" >> "$GITHUB_OUTPUT"
-                echo "Preview for ${GITHUB_SHA} is live: ${url}"
+                echo "Preview for ${PR_SHA} is live: ${url}"
                 exit 0
               fi
               if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
-                echo "::error title=TestSprite::the Vercel preview build failed for ${GITHUB_SHA}"
+                echo "::error title=TestSprite::the Vercel preview build failed for ${PR_SHA}"
                 exit 1
               fi
+            else
+              echo "no Preview deployment for ${PR_SHA} yet"
             fi
             sleep 15
           done
-          echo "::error title=TestSprite::no successful Vercel preview deployment for ${GITHUB_SHA}"
+          echo "::error title=TestSprite::no successful Vercel preview deployment for ${PR_SHA}"
           exit 1
 
       - name: Run the TestSprite suite against this PR's preview
