@@ -48,7 +48,7 @@ export function durationMinutes(start: string, end: string): number | null {
 
 /** 单次预约是否落在时长上限内。 */
 export function isWithinMaxDuration(startMin: number, endMin: number): boolean {
-  return (endMin - startMin) / 60 <= MAX_DURATION_MIN;
+  return endMin - startMin <= MAX_DURATION_MIN;
 }
 
 /** 时间下拉的全部取值：09:00, 09:30, … 18:00。 */
