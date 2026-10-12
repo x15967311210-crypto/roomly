@@ -1,0 +1,74 @@
+name: TestSprite
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # 1) Test the pull request's OWN Vercel preview deployment.
+  #    This is the gate that catches a regression introduced by the PR: the
+  #    preview serves the branch's code, so a rule the suite covers that the
+  #    branch breaks turns this check red.
+  preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for this branch's Vercel preview to be reachable
+        id: preview
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          # Vercel's deterministic branch alias: lowercase, non-alphanumerics to
+          # '-', collapsed and trimmed, capped at 63 characters.
+          slug="$(printf '%s' "$BRANCH" \
+            | tr '[:upper:]' '[:lower:]' \
+            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
+            | cut -c1-63)"
+          url="https://roomly-git-${slug}-revc1.vercel.app"
+          echo "Waiting for preview: $url"
+          for _ in $(seq 1 40); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)"
+            if [ "$code" = "200" ]; then
+              echo "url=$url" >> "$GITHUB_OUTPUT"
+              echo "Preview is live: $url"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error title=TestSprite::preview deployment never became reachable: $url"
+          exit 1
+
+      - name: Run the TestSprite suite against the preview
+        env:
+          TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
+          TESTSPRITE_PROJECT_ID: 887fe27e-9064-4003-b1f0-051c5a324d5c
+          TESTSPRITE_NO_SKILL_WARNING: "1"
+        run: |
+          npx -y @testsprite/testsprite-cli@latest test run --all \
+            --project "$TESTSPRITE_PROJECT_ID" \
+            --target-url "${{ steps.preview.outputs.url }}" \
+            --wait --timeout 1800 \
+            --report junit --report-file testsprite-preview-junit.xml
+
+      - name: Upload the JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testsprite-junit-preview
+          path: testsprite-preview-junit.xml
+          if-no-files-found: ignore
+
+  # 2) The official TestSprite action, run as the repo's project-level check.
+  #    It runs the whole suite against the project's configured environment.
+  project:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: TestSprite/testsprite-action@v1
+        with:
+          api-key: ${{ secrets.TESTSPRITE_API_KEY }}
+          project: "887fe27e-9064-4003-b1f0-051c5a324d5c"
+          timeout: "1800"
+          artifact-name: testsprite-junit-project
