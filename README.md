@@ -5,7 +5,9 @@
 
 ## Live URL
 
-> 部署后填入，例如 `https://x15967311210-crypto.github.io/roomly/`
+**https://x15967311210-crypto.github.io/roomly/**
+
+（GitHub Pages 自动部署：推送到 `main` 后由 `.github/workflows/deploy-pages.yml` 构建并发布。）
 
 ## 这个应用做什么
 
