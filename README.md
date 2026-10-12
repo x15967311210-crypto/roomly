@@ -53,18 +53,28 @@ public/                  静态资源
 
 - **接入方式**：GitHub App（零改仓）
 - **测试对象**：上面的 Live URL
-- **覆盖范围**：见下（suite 在 TestSprite 3.0 portal 中生成后可核对）
+- **当前 suite**：11 条前端测试，全部通过
 
-| 场景 | 断言要点 |
+### 自动生成（5 条 · 主流程与浏览）
+
+| 测试 | 覆盖 |
 | --- | --- |
-| 成功预约 | 提交后出现在「我的预约」，显示会议室 / 日期 / 时段 / 人数 |
-| 时段冲突被拒 | 同一会议室重叠时段提交失败，错误信息点名冲突的预约与时段 |
-| 本人跨会议室重复 | 同一预约人重叠时段被拒 |
-| 超容量被拒 | 参会人数 > 会议室容量时提示上限 |
-| 超时长被拒 | 单次 > 4 小时时提示 |
-| 时序非法被拒 | 结束时间早于开始时间时提示 |
-| 取消预约 | 取消后状态变为「已取消」，并从「即将开始」中移除 |
-| 会议室占用视图 | 切换日期后显示当天的占用时段与占用时长 |
+| Create a room reservation | 完整预约流程 |
+| Browse my upcoming reservations | 「即将开始」列表 |
+| Browse all reservations | 「全部」筛选 |
+| Browse canceled reservations | 「已取消」筛选 |
+| View room availability details | 按天查看会议室占用 |
+
+### 业务规则（6 条 · 边界与拒绝路径）
+
+| 测试 | 断言要点 |
+| --- | --- |
+| Rejects a reservation that overlaps an existing booking in the same room | 报错含「占用」并点名冲突的预约；未创建第二条 |
+| Rejects booking a second room at a time the same person is already booked | 跨会议室重复预约被拒，点名既有预约 |
+| Rejects a reservation whose attendee count exceeds the room capacity | 报错含「容量」与上限人数 |
+| Rejects a reservation longer than the four-hour maximum | 报错含「4 小时」上限 |
+| Rejects a reservation whose end time is not after its start time | 报错含「结束时间必须晚于开始时间」 |
+| Cancels an upcoming reservation and moves it out of the upcoming list | 状态转「已取消」；从「即将开始」消失、在「已取消」出现 |
 
 ## 技术栈
 
