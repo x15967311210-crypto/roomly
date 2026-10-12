@@ -1,9 +1,14 @@
 import { useState, type FormEvent } from 'react';
 import { ROOMS, roomById } from '../data';
 import {
+  CLOSING_MIN,
   MAX_ADVANCE_DAYS,
+  durationMinutes,
+  formatDurationLabel,
+  formatMinutes,
   makeBookingId,
   nextDefaultSlot,
+  parseTimeToMinutes,
   timeOptions,
   toDateKey,
   todayKey,
@@ -56,6 +61,15 @@ export default function BookingForm({ booker, bookings, onCreate }: Props) {
     setSuccess(null);
   }
 
+  /** 快捷时长：从开始时间往后推，且不越过下班时间。 */
+  function applyQuick(minutes: number): void {
+    const startMin = parseTimeToMinutes(input.start);
+    if (startMin === null) return;
+    const endMin = Math.min(startMin + minutes, CLOSING_MIN);
+    setInput(current => ({ ...current, end: formatMinutes(endMin) }));
+    setSuccess(null);
+  }
+
   function handleSubmit(event: FormEvent): void {
     event.preventDefault();
     setSubmitted(true);
@@ -81,6 +95,7 @@ export default function BookingForm({ booker, bookings, onCreate }: Props) {
   }
 
   const room = roomById(input.roomId);
+  const duration = durationMinutes(input.start, input.end);
 
   return (
     <form className="card form" onSubmit={handleSubmit} data-testid="booking-form" noValidate>
@@ -175,6 +190,23 @@ export default function BookingForm({ booker, bookings, onCreate }: Props) {
             <small className="error">{fieldError(visible, 'attendees')}</small>
           )}
         </label>
+      </div>
+
+      <div className="quick" role="group" aria-label="快捷时长">
+        <span className="muted small">快捷时长</span>
+        {[30, 60, 120].map(minutes => (
+          <button
+            key={minutes}
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => applyQuick(minutes)}
+          >
+            {formatDurationLabel(minutes)}
+          </button>
+        ))}
+        <span className="muted small" data-testid="duration-hint">
+          {duration === null ? '时长：—' : `时长：${formatDurationLabel(duration)}`}
+        </span>
       </div>
 
       <div className="form-foot">

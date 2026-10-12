@@ -1,0 +1,90 @@
+name: TestSprite
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  # Test the pull request's OWN Vercel preview deployment.
+  # This is the gate that catches a regression introduced by the PR: the
+  # preview serves the branch's code, so a rule the suite covers that the
+  # branch breaks turns this check red.
+  #
+  # The preview URL is resolved from the GitHub Deployment that Vercel creates
+  # for THIS commit — not from the branch alias, which keeps answering 200 for
+  # the previous build until the new one is promoted (that race made this job
+  # test stale code).
+  preview:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve this commit's Vercel preview URL
+        id: preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `GITHUB_SHA` on a pull_request event is the merge commit GitHub
+          # synthesises for the PR, which Vercel never builds. The deployment
+          # belongs to the branch's head commit.
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          echo "Resolving the Vercel preview for ${PR_SHA}"
+          for _ in $(seq 1 40); do
+            dep="$(gh api "repos/${GITHUB_REPOSITORY}/deployments?sha=${PR_SHA}&per_page=20" \
+              --jq '[.[] | select(.environment=="Preview")] | .[0].id' 2>/dev/null || true)"
+            if [ -n "${dep:-}" ] && [ "$dep" != "null" ]; then
+              state="$(gh api "repos/${GITHUB_REPOSITORY}/deployments/${dep}/statuses" --jq '.[0].state' 2>/dev/null || true)"
+              url="$(gh api "repos/${GITHUB_REPOSITORY}/deployments/${dep}/statuses" --jq '.[0].environment_url' 2>/dev/null || true)"
+              echo "deployment ${dep}: state=${state} url=${url}"
+              if [ "$state" = "success" ] && [ -n "${url:-}" ] && [ "$url" != "null" ]; then
+                echo "url=${url}" >> "$GITHUB_OUTPUT"
+                echo "Preview for ${PR_SHA} is live: ${url}"
+                exit 0
+              fi
+              if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
+                echo "::error title=TestSprite::the Vercel preview build failed for ${PR_SHA}"
+                exit 1
+              fi
+            else
+              echo "no Preview deployment for ${PR_SHA} yet"
+            fi
+            sleep 15
+          done
+          echo "::error title=TestSprite::no successful Vercel preview deployment for ${PR_SHA}"
+          exit 1
+
+      - name: Run the TestSprite suite against this PR's preview
+        env:
+          TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
+          TESTSPRITE_PROJECT_ID: 887fe27e-9064-4003-b1f0-051c5a324d5c
+          TESTSPRITE_NO_SKILL_WARNING: "1"
+        run: |
+          npx -y @testsprite/testsprite-cli@latest test run --all \
+            --project "$TESTSPRITE_PROJECT_ID" \
+            --target-url "${{ steps.preview.outputs.url }}" \
+            --wait --timeout 1800 \
+            --report junit --report-file testsprite-preview-junit.xml
+
+      - name: Upload the JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: testsprite-junit-preview
+          path: testsprite-preview-junit.xml
+          if-no-files-found: ignore
+
+  # The official TestSprite action, run against the project's configured
+  # environment. Runs on pushes to main only: on a pull request this would
+  # dispatch the same batch of tests a second time, against a different URL,
+  # for no extra signal.
+  project:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: TestSprite/testsprite-action@v1
+        with:
+          api-key: ${{ secrets.TESTSPRITE_API_KEY }}
+          project: "887fe27e-9064-4003-b1f0-051c5a324d5c"
+          timeout: "1800"
+          artifact-name: testsprite-junit-project
