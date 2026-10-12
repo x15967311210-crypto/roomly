@@ -6,41 +6,48 @@ on:
     branches: [main]
 
 jobs:
-  # 1) Test the pull request's OWN Vercel preview deployment.
-  #    This is the gate that catches a regression introduced by the PR: the
-  #    preview serves the branch's code, so a rule the suite covers that the
-  #    branch breaks turns this check red.
+  # Test the pull request's OWN Vercel preview deployment.
+  # This is the gate that catches a regression introduced by the PR: the
+  # preview serves the branch's code, so a rule the suite covers that the
+  # branch breaks turns this check red.
+  #
+  # The preview URL is resolved from the GitHub Deployment that Vercel creates
+  # for THIS commit — not from the branch alias, which keeps answering 200 for
+  # the previous build until the new one is promoted (that race made this job
+  # test stale code).
   preview:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - name: Wait for this branch's Vercel preview to be reachable
+      - name: Resolve this commit's Vercel preview URL
         id: preview
         env:
-          BRANCH: ${{ github.head_ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euo pipefail
-          # Vercel's deterministic branch alias: lowercase, non-alphanumerics to
-          # '-', collapsed and trimmed, capped at 63 characters.
-          slug="$(printf '%s' "$BRANCH" \
-            | tr '[:upper:]' '[:lower:]' \
-            | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' \
-            | cut -c1-63)"
-          url="https://roomly-git-${slug}-revc1.vercel.app"
-          echo "Waiting for preview: $url"
+          set -uo pipefail
           for _ in $(seq 1 40); do
-            code="$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)"
-            if [ "$code" = "200" ]; then
-              echo "url=$url" >> "$GITHUB_OUTPUT"
-              echo "Preview is live: $url"
-              exit 0
+            dep="$(gh api "repos/${GITHUB_REPOSITORY}/deployments?sha=${GITHUB_SHA}&per_page=20" \
+              --jq '[.[] | select(.environment=="Preview")] | .[0].id' 2>/dev/null || true)"
+            if [ -n "${dep:-}" ] && [ "$dep" != "null" ]; then
+              state="$(gh api "repos/${GITHUB_REPOSITORY}/deployments/${dep}/statuses" --jq '.[0].state' 2>/dev/null || true)"
+              url="$(gh api "repos/${GITHUB_REPOSITORY}/deployments/${dep}/statuses" --jq '.[0].environment_url' 2>/dev/null || true)"
+              echo "deployment ${dep}: state=${state} url=${url}"
+              if [ "$state" = "success" ] && [ -n "${url:-}" ] && [ "$url" != "null" ]; then
+                echo "url=${url}" >> "$GITHUB_OUTPUT"
+                echo "Preview for ${GITHUB_SHA} is live: ${url}"
+                exit 0
+              fi
+              if [ "$state" = "failure" ] || [ "$state" = "error" ]; then
+                echo "::error title=TestSprite::the Vercel preview build failed for ${GITHUB_SHA}"
+                exit 1
+              fi
             fi
             sleep 15
           done
-          echo "::error title=TestSprite::preview deployment never became reachable: $url"
+          echo "::error title=TestSprite::no successful Vercel preview deployment for ${GITHUB_SHA}"
           exit 1
 
-      - name: Run the TestSprite suite against the preview
+      - name: Run the TestSprite suite against this PR's preview
         env:
           TESTSPRITE_API_KEY: ${{ secrets.TESTSPRITE_API_KEY }}
           TESTSPRITE_PROJECT_ID: 887fe27e-9064-4003-b1f0-051c5a324d5c
@@ -60,10 +67,12 @@ jobs:
           path: testsprite-preview-junit.xml
           if-no-files-found: ignore
 
-  # 2) The official TestSprite action, run as the repo's project-level check.
-  #    It runs the whole suite against the project's configured environment.
+  # The official TestSprite action, run against the project's configured
+  # environment. Runs on pushes to main only: on a pull request this would
+  # dispatch the same batch of tests a second time, against a different URL,
+  # for no extra signal.
   project:
-    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: TestSprite/testsprite-action@v1
