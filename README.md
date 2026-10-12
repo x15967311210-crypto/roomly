@@ -77,6 +77,22 @@ public/                  静态资源
 | Rejects a reservation whose end time is not after its start time | 报错含「结束时间必须晚于开始时间」 |
 | Cancels an upcoming reservation and moves it out of the upcoming list | 状态转「已取消」；从「即将开始」消失、在「已取消」出现 |
 
+## 持续集成（每个 PR 自动运行）
+
+`.github/workflows/testsprite.yml`：
+
+1. 解析**该 PR 头提交**对应的 Vercel 预览部署，并等它构建成功
+   （用 `github.event.pull_request.head.sha` 查 GitHub Deployment API —— PR 事件里的
+   `GITHUB_SHA` 是合并提交，Vercel 不会构建它；分支别名又会在新构建 promote 前
+   继续返回旧部署，所以两者都不能直接用）
+2. 用 TestSprite 的 11 条测试打**这个 PR 自己的预览环境**（`--target-url`）
+3. 分支引入的回归会直接把 `preview` check 打红
+
+推送到 `main` 时，`project` job 用官方 [`TestSprite/testsprite-action@v1`](https://github.com/TestSprite/testsprite-action)
+对项目环境再跑一遍（不在 PR 上跑，避免同一批测试被并发派发两次）。
+
+结果出现在 PR 的 **Checks** 标签页，JUnit 报告作为 workflow artifact 上传。
+
 ## 技术栈
 
 React 18 + Vite 5 + TypeScript（严格模式），零运行时依赖，零后端。
